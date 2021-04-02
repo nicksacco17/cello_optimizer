@@ -1,8 +1,18 @@
 import tkinter as tk
 import tkinter.filedialog
+from tkinter import ttk
+import copy
+import time
+from circuit_netlist_parser import Netlist_Parser
+from itertools import combinations
+from util import parse_verilog
+from shutil import copyfile
+from PIL import ImageTk, Image
+import os
 
 # This is our custom module for parsing JSONs related to Cello
-import input_processor as ip
+from input_processor import Input_Processor
+from celloapi2 import CelloQuery, CelloResult
 
 class CelloGUI(tk.Frame):
 
@@ -20,12 +30,16 @@ class CelloGUI(tk.Frame):
 
         if load == "DEFAULT":
             self.input_folder_path = "D:\\CSBE\\DEVICE_FS\\"
-            self.input_path = "D:\\CSBE\\DEVICE_FS\\input\\Eco1C1G1T1\\Eco1C1G1T1.input.json"
+            self.input_path = "D:\\CSBE\\DEVICE_FS\\input\\Eco1C1G1T1\\"
+            #self.input_path = "D:\\CSBE\\DEVICE_FS\\input\\Eco1C1G1T1\\Eco1C1G1T1.input.json"
             self.output_path = "D:\\CSBE\\DEVICE_FS\\input\\Eco1C1G1T1\\Eco1C1G1T1.output.json"
             self.ucf_path = "D:\\CSBE\\DEVICE_FS\\input\\Eco1C1G1T1\\Eco1C1G1T1.ucf.json"
             self.options_path = "D:\\CSBE\\DEVICE_FS\\input\\Eco1C1G1T1\\options.csv"
             self.verilog_path = "D:\\CSBE\\DEVICE_FS\\input\\verilog_files\\and.v"
-            self.work_dir = "D:\\CSBE\\cello_in"
+            self.work_dir = "D:\\CSBE\\"
+
+            self.IN_DIR = self.work_dir + "cello_in\\"
+            self.OUT_DIR = self.work_dir + "cello_out\\"
 
             self.folder_entry.delete(0, tk.END)
             self.folder_entry.insert(0, self.input_folder_path)
@@ -83,15 +97,11 @@ class CelloGUI(tk.Frame):
         self.workdir_entry.delete(0, tk.END)
         self.workdir_entry.insert(0, self.work_dir)
 
-    def run_code(self):
-        self.file_processor = ip.Input_Processor(input_folder_path = self.input_folder_path,
-                                                    input_file = self.input_path, 
-                                                    output_file = self.output_path, 
-                                                    constraint_file = self.ucf_path, 
-                                                    options_file = self.options_path, 
-                                                    WORK_DIR = self.work_dir)
+    def parse_files(self):
+        self.file_processor = Input_Processor(input_folder_path = self.input_path, chassis_name = self.chassis, working_directory = self.IN_DIR)
         self.file_processor.parse_input()
         self.file_processor.parse_ucf()
+        self.file_processor.parse_output()
 
         menu = self.possible_inputs["menu"]
         menu.delete(0, tk.END)
@@ -178,6 +188,112 @@ class CelloGUI(tk.Frame):
         self.approve_entry.delete(0, tk.END)
         self.approve_entry.insert(0, self.mod_path)
 
+    def submit_chassis(self):
+        self.chassis = self.chassis_entry.get()
+
+    def run_cello(self):
+
+        opt_flag = self.optimization_flag.get()
+
+        verilog_name = os.path.split(self.verilog_path)[1]
+        
+        signal_input = parse_verilog(self.verilog_path)
+        copyfile(self.verilog_path, self.IN_DIR + verilog_name)
+
+        q = CelloQuery(input_directory = self.IN_DIR, 
+            output_directory = self.OUT_DIR, 
+            verilog_file = verilog_name, 
+            compiler_options = self.file_processor.options_filename, 
+            input_ucf = self.file_processor.circuit_constraint_filename, 
+            input_sensors = self.file_processor.circuit_input_filename, 
+            output_device = self.file_processor.circuit_output_filename)
+
+        signals = q.get_input_signals()
+        signal_pairing = list(combinations(signals, signal_input))
+
+        print("SIGNALS: " + str(signals))
+        print("SIGNAL PAIRING: " + str(signal_pairing))
+
+        num_signal_combinations = len(signal_pairing)
+        local_progress = 0
+
+        for signal_set in signal_pairing:
+            signal_set = list(signal_set)
+
+            print("SIGNAL SET: " + str(signal_set))
+
+            q.set_input_signals(signal_set)
+
+            start_time = time.time()
+            q.get_results()
+            stop_time = time.time()
+            print("GET RESULTS TOTAL TIME = %lf" % (stop_time - start_time))
+
+            try:
+                # Get results of the Cello query (most important: Scoring and Netlist)
+                res = CelloResult(results_dir = self.OUT_DIR)
+                local_progress += int(100 / num_signal_combinations)
+                self.cello_progress_num.set(local_progress)
+                self.update_idletasks()
+                print("PART NAMES: " + str(res.part_names))
+                #print("REPRESSOR SCORES: " + str(res.repressor_scores))
+                print("CIRCUIT SCORES: " + str(res.circuit_score))
+
+                # Select the output netlist
+                circuit_netlist_json = self.OUT_DIR + verilog_name.replace(".v", "") + "_outputNetlist.json"
+                #circuit_netlist_png = self.OUT_DIR + verilog_name.replace(".v", "") + "_gate_export.png"
+
+                # Canvas
+
+                #self.schematic.img = tk.PhotoImage(file = circuit_netlist_png)
+
+                #self.circuit_schematic = ImageTk.PhotoImage(Image.open(circuit_netlist_png))
+                #self.circuit_schematic_label = tk.Label(self.circuit_schematic)
+                #self.circuit_schematic_label.grid(row = 0, column = 10)
+
+                #self.circuit_schematic_canvas = tk.Canvas(self, bg = 'white', width = 300, height = 300)
+                #schematic = self.circuit_schematic_canvas.create_image(150, 150, image = circuit_netlist_png)
+
+                #self.circuit_schematic_canvas.grid(row = 0, column = 10)
+                #self.update_idletasks()
+
+                # Create the parser module
+                netlist_parser = Netlist_Parser(circuit_netlist_json)
+                netlist_parser.print()
+
+                # Cleanup the netlist JSON (Not needed if the _outputNetlist.json file is correctly formatted)
+                netlist_parser.parse_netlist(cleanup = True)
+
+                # Populate the reconstructed circuit with the parameters from the input JSONs (input, UCF, output)
+                netlist_parser.populate_input_values(self.file_processor.input_records)
+                netlist_parser.populate_response_functions(self.file_processor.gate_records)
+                netlist_parser.populate_output_converters(self.file_processor.output_records)
+        
+                # Now run the logic generator and the genetic generator - first assume it is digital circuit,
+                # compute what the outputs should be.  Next run it like actual genetic circuit using response 
+                # functions for each gate.
+                netlist_parser.run_circuit_logical()
+                netlist_parser.run_circuit_genetic()
+        
+                # Calculate the score
+                netlist_parser.calculate_score()
+                netlist_parser.print_genetric_truth_table()
+                netlist_score = netlist_parser.circuit_score
+                print("NETLIST SCORE = %lf" % netlist_score)
+
+                if res.circuit_score > best_score:
+                    best_score = res.circuit_score
+                    best_chassis = self.chassis
+                    best_input_signals = signal_set
+            except:
+                pass
+            q.reset_input_signals()
+            
+        print('-----')
+        print(f'Best Score: {best_score}')
+        print(f'Best Chassis: {best_chassis}')
+        print(f'Best Input Signals: {best_input_signals}')
+
     def create_widgets(self):
 
         # Button Declaration
@@ -188,10 +304,15 @@ class CelloGUI(tk.Frame):
         self.options_button = tk.Button(self, text = "OPTIONS", padx = 5, pady = 5, command = self.get_options)
         self.verilog_button = tk.Button(self, text = "VERILOG", padx = 5, pady = 5, command = self.get_verilog)
         self.working_dir_button = tk.Button(self, text = "WORKING DIRECTORY", padx = 5, pady = 5, command = self.get_workdir)
-        self.run_button = tk.Button(self, text = "Generate Inputs and Gates", padx = 5, pady = 5, command = self.run_code)
+        self.run_button = tk.Button(self, text = "Generate Inputs and Gates", padx = 5, pady = 5, command = self.parse_files)
         self.print_param_button = tk.Button(self, text = "Print Parameters", padx = 5, pady = 5, command = self.print_params)
         self.submit_param_button = tk.Button(self, text = "Save Parameters", padx = 5, pady = 5, command = self.submit_params)
         self.approve_changes_button = tk.Button(self, text = "APPROVE CHANGES", padx = 5, pady = 5, command = self.approve_params)
+        self.submit_chassis_button = tk.Button(self, text = "Submit Chassis", padx = 5, pady = 5, command = self.submit_chassis)
+        self.run_cello_button = tk.Button(self, text = "Run Cello!", padx = 5, pady = 5, command = self.run_cello)
+        self.cello_progress_num = tk.DoubleVar()
+        self.cello_progress_bar = ttk.Progressbar(self, orient = tk.HORIZONTAL, length = 300, mode = 'determinate', variable = self.cello_progress_num, maximum = 100)
+        self.quit_button = tk.Button(self, text = "Quit", padx = 5, pady = 5, command = self.quit)
 
         # Button Positioning
         self.folder_button.grid(row = 0, column = 0)
@@ -205,6 +326,10 @@ class CelloGUI(tk.Frame):
         self.submit_param_button.grid(row = 7, column = 4)
         self.approve_changes_button.grid(row = 8, column = 0)
         self.working_dir_button.grid(row = 9, column = 0)
+        self.submit_chassis_button.grid(row = 10, column = 0)
+        self.run_cello_button.grid(row = 11, column = 0)
+        self.quit_button.grid(row = 12, column = 0)
+        self.cello_progress_bar.grid(row = 11, column = 2)
 
         # Entry Declaration
         self.folder_entry = tk.Entry(self, width = 75, borderwidth = 5)
@@ -215,6 +340,7 @@ class CelloGUI(tk.Frame):
         self.verilog_entry = tk.Entry(self, width = 75, borderwidth = 5)
         self.approve_entry = tk.Entry(self, width = 75, borderwidth = 5)
         self.workdir_entry = tk.Entry(self, width = 75, borderwidth = 5)
+        self.chassis_entry = tk.Entry(self, width = 75, borderwidth = 5)
 
         # Entry Positioning
         self.folder_entry.grid(row = 0, column = 1, padx = 10, pady = 10)
@@ -225,6 +351,7 @@ class CelloGUI(tk.Frame):
         self.verilog_entry.grid(row = 5, column = 1, columnspan = 3, padx = 10, pady = 10)
         self.approve_entry.grid(row = 8, column = 1, columnspan = 3, padx = 10, pady = 10)
         self.workdir_entry.grid(row = 9, column = 1, columnspan = 3, padx = 10, pady = 10)
+        self.chassis_entry.grid(row = 10, column = 1, columnspan = 3, padx = 10, pady = 10)
 
         options_input = ["Input signals will go here..."]
         options_gate = ["Gates will go here..."]
@@ -246,6 +373,12 @@ class CelloGUI(tk.Frame):
         self.gate_param_textbox = tk.Text(self, width = 30, height = 20)
         self.gate_param_textbox.grid(row = 6, column = 4)
 
+        #self.schematic = tk.Label(self)
+        #self.schematic.grid(row = 0, column = 5, columnspan = 3, padx = 10, pady = 10)
+
+        self.optimization_flag = tk.IntVar()
+        self.optimize_checkbox = tk.Checkbutton(self, text = "Enable Optimization via Simulated Annealing?", variable = self.optimization_flag, onvalue = 1, offvalue = 0, height = 5, width = 75)
+        self.optimize_checkbox.grid(row = 11, column = 1, columnspan = 1, padx = 10, pady = 10)
 
 if __name__ == '__main__':
     root = tk.Tk()

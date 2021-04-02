@@ -11,10 +11,10 @@ class ResponseFunction():
     def __init__(self, ymax, ymin, K, n):
 
         self.x = np.logspace(-3, 3)
-        self.ymax = ymax
-        self.ymin = ymin
-        self.K = K
-        self.n = n
+        self.ymax = np.float64(ymax)
+        self.ymin = np.float64(ymin)
+        self.K = np.float64(K)
+        self.n = np.float64(n)
         self.create_sigmoid()
         self.num_plots = 0
 

@@ -7,12 +7,12 @@ FILEPATH = "D:\\CSBE\\DEVICE_FS\\input\\"
 
 class Input_Processor():
 
-    def __init__(self, input_folder_path = None, chassis_name = None, input_file = None, output_file = None, constraint_file = None, options_file = None, WORK_DIR = None):
+    def __init__(self, input_folder_path = None, chassis_name = None, input_file = None, output_file = None, constraint_file = None, options_file = None, working_directory = None):
 
         # If the user just provides a folder path and the name of the chassis
-        if input_folder_path is not None and chassis_name is not None:
+        if not input_file and not output_file and not constraint_file and not options_file:
 
-            self.input_folder_path = input_folder_path + "\\" + chassis_name + "\\"
+            self.input_folder_path = input_folder_path
             self.chassis_name = chassis_name
 
             self.circuit_input_file = self.input_folder_path + self.chassis_name + ".input.json"
@@ -21,23 +21,23 @@ class Input_Processor():
             self.options_file = self.input_folder_path + "\\options.csv"
 
         # Else the user specified ALL the paths
-        elif input_file is not None and output_file is not None and constraint_file is not None and options_file is not None:
+        else:
             self.circuit_input_file = input_file
             self.circuit_output_file = output_file
             self.circuit_constraint_file = constraint_file
             self.options_file = options_file
 
             self.input_folder_path = input_folder_path
-            self.chassis_name = "ORGANISM"
+            self.chassis_name = chassis_name
 
         # Now make copies of all the files for modification processes
-        self.circuit_input_file_COPY = self.input_folder_path + self.chassis_name + "_TEMP" + ".input.json"
-        self.circuit_output_file_COPY  = self.input_folder_path + self.chassis_name + "_TEMP" + ".output.json"
-        self.circuit_constraint_file_COPY  = self.input_folder_path + self.chassis_name + "_TEMP" + ".UCF.json"
+        #self.circuit_input_file_COPY = self.input_folder_path + self.chassis_name + "_TEMP" + ".input.json"
+        #self.circuit_output_file_COPY  = self.input_folder_path + self.chassis_name + "_TEMP" + ".output.json"
+        #self.circuit_constraint_file_COPY  = self.input_folder_path + self.chassis_name + "_TEMP" + ".UCF.json"
 
-        copyfile(self.circuit_input_file, self.circuit_input_file_COPY)
-        copyfile(self.circuit_output_file, self.circuit_output_file_COPY)
-        copyfile(self.circuit_constraint_file, self.circuit_constraint_file_COPY)
+        #copyfile(self.circuit_input_file, self.circuit_input_file_COPY)
+        #copyfile(self.circuit_output_file, self.circuit_output_file_COPY)
+        #copyfile(self.circuit_constraint_file, self.circuit_constraint_file_COPY)
 
         # Turns out we also need just the file name without the path...
         self.circuit_input_filename = self.chassis_name + ".input.json"
@@ -45,13 +45,19 @@ class Input_Processor():
         self.circuit_constraint_filename = self.chassis_name + ".UCF.json"
         self.options_filename = "options.csv"
 
-        self.work_dir = WORK_DIR
+        self.work_dir = working_directory
+
+        # Working Files
+        self.working_circuit_input_file = self.work_dir + self.circuit_input_filename
+        self.working_circuit_output_file = self.work_dir + self.circuit_output_filename
+        self.working_circuit_constraint_file = self.work_dir + self.circuit_constraint_filename
+        self.working_options_file = self.work_dir + self.options_filename
 
         # Copy all the files to the working directory
-        copyfile(self.circuit_input_file, self.work_dir + self.circuit_input_filename)
-        copyfile(self.circuit_output_file, self.work_dir + self.circuit_output_filename)
-        copyfile(self.circuit_constraint_file, self.work_dir + self.circuit_constraint_filename)
-        copyfile(self.options_file, self.work_dir + self.options_filename)
+        copyfile(self.circuit_input_file, self.working_circuit_input_file)
+        copyfile(self.circuit_output_file, self.working_circuit_output_file)
+        copyfile(self.circuit_constraint_file, self.working_circuit_constraint_file)
+        copyfile(self.options_file, self.working_options_file)
 
         self.input_records = {}
         self.output_records = {}
@@ -145,6 +151,55 @@ class Input_Processor():
                 if record not in self.output_records:
                     self.output_records[record.name] = record
     
+    def modify_inputs(self):
+
+        for input_sensor, record_obj in self.input_records.items():
+            record_obj.stretch(1.5)
+
+    def modify_constraint(self):
+
+        for repressor, record_obj in self.gate_records.items():
+            record_obj.stretch(1.5)
+
+    def save_input(self):
+        print("SAVING INPUT")
+
+        f = open(self.working_circuit_input_file)
+        data = json.load(f)
+        f.close()
+
+        for entry in data:
+            
+            if entry['collection'] == 'models':
+                model_name = entry['name'].replace("_model", "")
+
+                current_record = self.input_records[model_name]
+                new_formatted_parameters = current_record.get_parameters(entry['parameters'])
+                entry['parameters'] = new_formatted_parameters
+
+        f = open(self.working_circuit_input_file, 'w')
+        json.dump(data, f, indent = 4)
+        f.close()
+
+    def save_ucf(self):
+        print("SAVING UCF")
+
+        f = open(self.working_circuit_constraint_file)
+        data = json.load(f)
+        f.close()
+
+        for entry in data:
+
+            if entry['collection'] == 'models':
+                model_name = entry['name'].replace("_model", "")
+
+                current_record = self.gate_records[model_name]
+                new_formatted_parameters = current_record.get_parameters(entry['parameters'])
+                entry['parameters'] = new_formatted_parameters
+
+        f = open(self.working_circuit_constraint_file, 'w')
+        json.dump(data, f, indent = 4)
+        f.close()
 
 def main():
     file_parser = Input_Processor(FILEPATH, "Eco1C1G1T1")

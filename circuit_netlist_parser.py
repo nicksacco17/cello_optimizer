@@ -35,6 +35,8 @@ def f_nor(x, y):
     elif x == -1 or y == -1:
         return -1
 
+# This is from cello api, just pulled the code here to make it easier to use, but all credit goes to WR Jackson who
+# wrote the cello api
 def _fix_input_json(input_fp: str, final_trailing_comma: bool = False,) -> Union[List[Dict], Dict]:
     """
     Fixes some of the weird data output from Cello2 when it comes to marshalling
@@ -404,7 +406,7 @@ class Netlist_Parser():
     def calculate_score(self):
 
         input_signals = tuple([node.name for node in self.inputs])
-        print("INPUT TUPLE: " + str(input_signals))
+        #print("INPUT TUPLE: " + str(input_signals))
 
         ON_MIN = 1e9
         OFF_MAX = -1
@@ -412,17 +414,23 @@ class Netlist_Parser():
         for key, value in self.genetic_truth_table.items():
             logic_out = value[2]
             genetic_out = value[1]
-            print("DI/O = [ (" + ' '.join(('%d' % f) for f in key) + ") --> " + str(logic_out) + " ] || GI/O = [ (" + ' '.join(('%.3e' % f) for f in value[0]) + ") --> %.5e" % value[1] + " ]")
+            
             if logic_out == 0 and genetic_out > OFF_MAX:
                     OFF_MAX = genetic_out
             elif logic_out == 1 and genetic_out < ON_MIN:
                     ON_MIN = genetic_out
 
-        print("ON_MIN = %e, OFF_MAX = %e" %( ON_MIN, OFF_MAX))
-        self.circuit_score = ON_MIN/OFF_MAX
+        self.ON_MIN = ON_MIN
+        self.OFF_MAX = OFF_MAX
+        self.circuit_score = self.ON_MIN/self.OFF_MAX
         self.log_circuit_score = np.log10(self.circuit_score)
-        print("SCORE = %lf, LOG SCORE = %lf" % (self.circuit_score, self.log_circuit_score))
 
+    def print_genetric_truth_table(self):
+
+        for key, value in self.genetic_truth_table.items():
+            logic_out = value[2]
+            genetic_out = value[1]
+            print("DI/O = [ (" + ' '.join(('%d' % f) for f in key) + ") --> " + str(logic_out) + " ] || GI/O = [ (" + ' '.join(('%.3e' % f) for f in value[0]) + ") --> %.5e" % value[1] + " ]")
 
 if __name__ == '__main__':
 

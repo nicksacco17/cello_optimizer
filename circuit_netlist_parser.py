@@ -203,6 +203,24 @@ class Node():
             elif self.type == "PRIMARY_OUTPUT":
                 self.func_out = self.prev_nodes[0].func_out
  
+    '''
+    Function:       get_node_output
+    Args:           None
+    Return:         Logical output of the node
+    Description:    Wrapper function that just returns the output of any node.
+                    Return value based on type of node. 
+    '''
+    def get_node_output(self):
+
+        if self.type == "NOT":
+            return self.func(self.prev_nodes[0].func_out)
+        elif self.type == "NOR":
+            return self.func(self.prev_nodes[0].func_out, self.prev_nodes[1].func_out)
+        elif self.type == "PRIMARY_OUTPUT":
+            return self.prev_nodes[0].func_out
+        elif self.type == "PRIMARY_INPUT":
+            return self.func_out
+
 # ------------------------------- NODE DEFINITION ------------------------------
 
 # ------------------------- NETLIST_PARSER DEFINITION --------------------------
@@ -256,7 +274,6 @@ class Netlist_Parser():
                     the number of non-initialized nodes is 0.
     '''
     def check_initalized(self):
-
         num_non_initialized = 0
         for node in self.gates:
             if node.func_out == -1:
@@ -272,6 +289,16 @@ class Netlist_Parser():
     def print_names(self):
         for node in self.node_list:
             print("ID: " + node.tag + ", NAME: " + node.name)
+
+    '''
+    Function:       print
+    Args:           None
+    Return:         None
+    Description:    Prints the entire contents of each node in the circuit
+    '''
+    def print(self):
+        for node in self.node_list:
+            node.print()
 
     '''
     Function:       get_node
@@ -309,8 +336,7 @@ class Netlist_Parser():
         # Look for the JSON field labeled nodes - for each entry in this field:
         for entry in data['nodes']:
             # Create a new node and extract the required parameters
-            new_node = Node(nodeType = entry['nodeType'], 
-                            name = entry['deviceName'], tag = entry['name'])
+            new_node = Node(nodeType = entry['nodeType'], name = entry['deviceName'], tag = entry['name'])
             # Append the node to the list of all circuit nodes
             self.node_list.append(new_node)
 
@@ -374,10 +400,7 @@ class Netlist_Parser():
             if node.name in gate_records:
                 current_record = gate_records[node.name]
                 # Populate the node's response function with the parameters
-                node.resfunc = ResponseFunction(ymax = current_record.ymax, 
-                                                ymin = current_record.ymin, 
-                                                K = current_record.K, 
-                                                n = current_record.n)
+                node.resfunc = ResponseFunction(ymax = current_record.ymax, ymin = current_record.ymin, K = current_record.K, n = current_record.n)
 
     '''
     Function:       populate_output_converters
@@ -427,10 +450,10 @@ class Netlist_Parser():
         for node in self.node_list:
             if node.type == "PRIMARY_INPUT":
                 num_inputs += 1
-
+   
         # Generate all possible combinations of logical inputs: 2^num_inputs
         inputs = list(itertools.product([0, 1], repeat = num_inputs))
-        
+
         # For each potential logical input
         for current_input in inputs:
 
@@ -455,7 +478,10 @@ class Netlist_Parser():
                     # output if both of its predecessors are primary inputs
                     elif next_node.type == "NOR" and next_node.prev_nodes[0].type == "PRIMARY_INPUT" and next_node.prev_nodes[1].type == "PRIMARY_INPUT":
                         next_node.update_node_output("DIGITAL")
-                    
+            
+            #for node in self.node_list:
+            #    print("NODE TAG = " + node.tag + " OUTPUT = " + str(node.func_out))
+
             # Third, "flow upwards" until all gates are populated - 
             # While there are still unitialized nodes:
             while self.check_initalized() != 0:
@@ -469,9 +495,8 @@ class Netlist_Parser():
                         node.update_node_output("DIGITAL")
 
             # Caluclate the circuit output and populate the Boolean truth table
-            circuit_output = self.output[0].func_out()
+            circuit_output = self.output[0].get_node_output()
             self.truth_table[current_input] = circuit_output
- 
 
     '''
     Function:       run_circuit_genetic
@@ -540,34 +565,48 @@ class Netlist_Parser():
                         node.update_node_output("GENETIC")
                     
             # Calculate the overall output of the circuit and populate the genetic Truth table
-            circuit_output = self.output[0].func_out * self.output[0].unit_conversion
+            circuit_output = self.output[0].get_node_output() * self.output[0].unit_conversion
             self.genetic_truth_table[current_input] = [inputs_genetic, circuit_output, self.truth_table[current_input]]
  
-    def print(self):
-        for node in self.node_list:
-            node.print()
 
+    '''
+    Function:       calculate_score
+    Args:           None
+    Return:         None
+    Description:    Calculates the score of a genetic circuit - ON_MIN/OFF_MAX
+    '''
     def calculate_score(self):
-
-        input_signals = tuple([node.name for node in self.inputs])
 
         ON_MIN = 1e9
         OFF_MAX = -1
 
+        # For each entry in the genetic truth table
         for key, value in self.genetic_truth_table.items():
+
+            # Get the logical output and the genetic output
             logic_out = value[2]
             genetic_out = value[1]
             
+            # If entry's output corresponds to logical 0, update OFF_MAX as necessary
             if logic_out == 0 and genetic_out > OFF_MAX:
                     OFF_MAX = genetic_out
+            # Else if entry's output corresponds to logical 1, update ON_MIN as ncessary
             elif logic_out == 1 and genetic_out < ON_MIN:
                     ON_MIN = genetic_out
 
         self.ON_MIN = ON_MIN
         self.OFF_MAX = OFF_MAX
+
+        # Calculate the score and log score
         self.circuit_score = self.ON_MIN/self.OFF_MAX
         self.log_circuit_score = np.log10(self.circuit_score)
 
+    '''
+    Function:       print_genetic_truth_table
+    Args:           None
+    Return:         None
+    Description:    Prints the contents of the genetic truth table line by line
+    '''
     def print_genetric_truth_table(self):
 
         for key, value in self.genetic_truth_table.items():
